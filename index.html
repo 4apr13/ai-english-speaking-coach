@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI英语口语陪练 - 面试/点餐/会议</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🎙️ AI 英语口语陪练</h1>
+        
+        <!-- 场景选择 -->
+        <div class="scene-section">
+            <label>选择练习场景：</label>
+            <div class="scene-buttons">
+                <button class="scene-btn" data-scene="interview">💼 面试</button>
+                <button class="scene-btn" data-scene="ordering">🍔 点餐</button>
+                <button class="scene-btn" data-scene="meeting">📊 会议</button>
+            </div>
+        </div>
+
+        <!-- 对话区域 -->
+        <div class="chat-section">
+            <div class="chat-box" id="chatBox">
+                <div class="ai-message">👩‍💼 AI: Hello! I'm your English coach. Select a scene to start practicing!</div>
+            </div>
+        </div>
+
+        <!-- 录音控制 -->
+        <div class="control-section">
+            <button id="recordBtn" class="record-btn">🎤 点击说话</button>
+            <div class="status" id="status">⚪ 准备就绪</div>
+        </div>
+
+        <!-- 发音评分 -->
+        <div class="score-section" id="scoreSection" style="display:none;">
+            <h3>📊 发音评分</h3>
+            <div class="score-bar">
+                <div class="score-fill" id="scoreFill"></div>
+            </div>
+            <div class="score-text" id="scoreText">0分</div>
+        </div>
+
+        <!-- 语法纠错 -->
+        <div class="correction-section" id="correctionSection" style="display:none;">
+            <h3>✏️ 语法/表达建议</h3>
+            <div class="correction-text" id="correctionText"></div>
+        </div>
+
+        <!-- 课后总结按钮 -->
+        <button id="reportBtn" class="report-btn">📋 生成课后总结</button>
+        <div class="report-section" id="reportSection" style="display:none;">
+            <h3>📈 本节课总结</h3>
+            <div id="reportContent"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

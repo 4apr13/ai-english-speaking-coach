@@ -1,0 +1,170 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 20px;
+    padding: 24px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+    margin-bottom: 24px;
+}
+
+.scene-section {
+    margin-bottom: 24px;
+}
+
+.scene-section label {
+    font-weight: bold;
+    display: block;
+    margin-bottom: 10px;
+}
+
+.scene-buttons {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.scene-btn {
+    padding: 10px 20px;
+    border: 2px solid #667eea;
+    background: white;
+    border-radius: 30px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.3s;
+}
+
+.scene-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+.scene-btn.active {
+    background: #667eea;
+    color: white;
+}
+
+.chat-section {
+    margin-bottom: 24px;
+}
+
+.chat-box {
+    background: #f5f5f5;
+    border-radius: 16px;
+    padding: 16px;
+    height: 300px;
+    overflow-y: auto;
+}
+
+.ai-message, .user-message {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: 18px;
+    max-width: 80%;
+}
+
+.ai-message {
+    background: #e3f2fd;
+    color: #1565c0;
+    margin-right: auto;
+}
+
+.user-message {
+    background: #667eea;
+    color: white;
+    margin-left: auto;
+}
+
+.control-section {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.record-btn {
+    padding: 16px 40px;
+    font-size: 18px;
+    background: #ff4757;
+    color: white;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.record-btn:active {
+    transform: scale(0.95);
+}
+
+.record-btn.recording {
+    background: #ff6b81;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.status {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #666;
+}
+
+.score-section, .correction-section, .report-section {
+    margin-top: 20px;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 12px;
+}
+
+.score-bar {
+    height: 20px;
+    background: #e0e0e0;
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 10px 0;
+}
+
+.score-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00c853, #64dd17);
+    transition: width 0.5s;
+}
+
+.report-btn {
+    width: 100%;
+    padding: 12px;
+    background: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-top: 16px;
+}
+
+.correction-text {
+    color: #ff6d00;
+    line-height: 1.6;
+}

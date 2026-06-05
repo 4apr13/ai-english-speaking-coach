@@ -130,26 +130,11 @@ h1 {
     color: #666;
 }
 
-.score-section, .correction-section, .report-section {
+.correction-section, .report-section {
     margin-top: 20px;
     padding: 16px;
     background: #f8f9fa;
     border-radius: 12px;
-}
-
-.score-bar {
-    height: 20px;
-    background: #e0e0e0;
-    border-radius: 10px;
-    overflow: hidden;
-    margin: 10px 0;
-}
-
-.score-fill {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, #00c853, #64dd17);
-    transition: width 0.5s;
 }
 
 .report-btn {

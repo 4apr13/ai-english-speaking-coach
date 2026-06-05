@@ -5,6 +5,7 @@ let audioChunks = [];
 let isRecording = false;
 let conversationHistory = [];
 let grammarCorrections = [];
+let recognition = null;
 
 // 场景对应的系统提示词
 const scenePrompts = {
@@ -24,6 +25,106 @@ const reportBtn = document.getElementById('reportBtn');
 const reportSection = document.getElementById('reportSection');
 const reportContent = document.getElementById('reportContent');
 
+// ========== 初始化 Web Speech API ==========
+function initSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        statusDiv.textContent = '❌ 当前浏览器不支持语音识别，请使用 Chrome';
+        recordBtn.disabled = true;
+        return false;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+        isRecording = true;
+        recordBtn.classList.add('recording');
+        recordBtn.textContent = '🎤 录音中... 再次点击结束';
+        statusDiv.textContent = '🔴 正在录音，请说英语...';
+    };
+
+    recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+            .map(result => result[0].transcript)
+            .join('');
+
+        // 实时显示识别中的文字
+        statusDiv.textContent = `🎙️ 识别中: "${transcript}"`;
+
+        // 如果是最终结果
+        if (event.results[event.results.length - 1].isFinal) {
+            handleUserSpeech(transcript);
+        }
+    };
+
+    recognition.onerror = (event) => {
+        console.error('语音识别错误:', event.error);
+        if (event.error === 'no-speech') {
+            statusDiv.textContent = '⚠️ 没有检测到声音，请重试';
+        } else if (event.error === 'not-allowed') {
+            statusDiv.textContent = '❌ 麦克风权限被拒绝，请在浏览器设置中允许';
+        } else {
+            statusDiv.textContent = `❌ 识别错误: ${event.error}`;
+        }
+        resetRecordBtn();
+    };
+
+    recognition.onend = () => {
+        resetRecordBtn();
+    };
+
+    return true;
+}
+
+function resetRecordBtn() {
+    isRecording = false;
+    recordBtn.classList.remove('recording');
+    recordBtn.textContent = '🎤 点击说话';
+}
+
+// ========== 处理用户语音输入 ==========
+async function handleUserSpeech(transcript) {
+    if (!transcript.trim()) {
+        statusDiv.textContent = '⚠️ 未识别到内容，请重试';
+        return;
+    }
+
+    addUserMessage(transcript);
+    statusDiv.textContent = '🤖 AI 思考中...';
+
+    // 语法检查
+    const corrections = checkGrammar(transcript);
+    if (corrections.length > 0) {
+        showGrammarCorrections(corrections);
+    }
+
+    // 获取 AI 回复
+    await getAIResponse(transcript);
+}
+
+// ========== 录音按钮：点击开关 ==========
+recordBtn.addEventListener('click', () => {
+    if (!recognition) {
+        const supported = initSpeechRecognition();
+        if (!supported) return;
+    }
+
+    if (isRecording) {
+        recognition.stop();
+    } else {
+        try {
+            recognition.start();
+        } catch (err) {
+            console.error('启动识别失败:', err);
+            statusDiv.textContent = '❌ 启动失败，请刷新页面重试';
+        }
+    }
+});
+
 // ========== 场景切换 ==========
 sceneBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -35,83 +136,15 @@ sceneBtns.forEach(btn => {
         conversationHistory = [];
         grammarCorrections = [];
 
-        // AI 发送开场白
-        addAIMessage(`Scene changed to ${btn.textContent}. Let's start!`);
+        // 如果正在录音则停止
+        if (isRecording && recognition) {
+            recognition.stop();
+        }
 
-        // 调用 API 获取开场白
+        addAIMessage(`Scene changed to ${btn.textContent}. Let's start!`);
         getAIResponse("Let's begin the conversation. Say something to start.");
     });
 });
-
-// ========== 录音功能 ==========
-recordBtn.addEventListener('mousedown', startRecording);
-recordBtn.addEventListener('mouseup', stopRecording);
-recordBtn.addEventListener('mouseleave', stopRecording);
-
-function startRecording() {
-    if (isRecording) return;
-
-    navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
-
-            mediaRecorder.ondataavailable = event => {
-                audioChunks.push(event.data);
-            };
-
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                processAudio(audioBlob);
-                stream.getTracks().forEach(track => track.stop());
-            };
-
-            mediaRecorder.start();
-            isRecording = true;
-            recordBtn.classList.add('recording');
-            recordBtn.textContent = '🎤 录音中... 松手结束';
-            statusDiv.textContent = '🔴 正在录音... 松手后自动识别';
-        })
-        .catch(err => {
-            console.error('麦克风错误:', err);
-            statusDiv.textContent = '❌ 无法访问麦克风，请检查权限';
-        });
-}
-
-function stopRecording() {
-    if (!isRecording) return;
-
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-        isRecording = false;
-        recordBtn.classList.remove('recording');
-        recordBtn.textContent = '🎤 点击说话';
-        statusDiv.textContent = '⚪ 处理中...';
-    }
-}
-
-// ========== 处理音频并转文字 ==========
-async function processAudio(audioBlob) {
-    statusDiv.textContent = '🎙️ 识别中...';
-
-    const userText = prompt('🎙️ 请用英语说出你的回答（演示模式）：\n\n正式版本会自动识别语音，当前演示请手动输入：');
-
-    if (userText) {
-        addUserMessage(userText);
-        statusDiv.textContent = '🤖 AI 思考中...';
-
-        // 语法检查
-        const corrections = checkGrammar(userText);
-        if (corrections.length > 0) {
-            showGrammarCorrections(corrections);
-        }
-
-        // 获取 AI 回复
-        await getAIResponse(userText);
-    } else {
-        statusDiv.textContent = '⚪ 准备就绪';
-    }
-}
 
 // ========== 语法检查（演示用）==========
 function checkGrammar(text) {
@@ -217,9 +250,7 @@ function addAIMessage(text) {
 
 // ========== 生成课后总结 ==========
 reportBtn.addEventListener('click', () => {
-    // 发音评分待接入真实评测系统，暂不展示
     const avgScore = '待接入评测系统';
-
     const uniqueCorrections = [...new Set(grammarCorrections)];
 
     let reportHtml = `
@@ -251,5 +282,6 @@ reportBtn.addEventListener('click', () => {
     reportSection.scrollIntoView({ behavior: 'smooth' });
 });
 
-// ========== 初始化问候 ==========
-addAIMessage("👋 Hi! I'm your AI English coach. Click and hold the mic button, speak your answer, then release. Let's practice! Choose a scene above to start.");
+// ========== 初始化 ==========
+addAIMessage("👋 Hi! I'm your AI English coach. Click the mic button and speak in English. Let's practice! Choose a scene above to start.");
+initSpeechRecognition();

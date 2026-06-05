@@ -1,7 +1,5 @@
 // ========== 全局变量 ==========
 let currentScene = 'interview';
-let mediaRecorder = null;
-let audioChunks = [];
 let isRecording = false;
 let conversationHistory = [];
 let grammarCorrections = [];
@@ -37,7 +35,7 @@ function initSpeechRecognition() {
 
     recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
 
     recognition.onstart = () => {
@@ -48,16 +46,24 @@ function initSpeechRecognition() {
     };
 
     recognition.onresult = (event) => {
-        const transcript = Array.from(event.results)
-            .map(result => result[0].transcript)
-            .join('');
+        let interimTranscript = '';
+        let finalTranscript = '';
 
-        // 实时显示识别中的文字
-        statusDiv.textContent = `🎙️ 识别中: "${transcript}"`;
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalTranscript += transcript;
+            } else {
+                interimTranscript += transcript;
+            }
+        }
 
-        // 如果是最终结果
-        if (event.results[event.results.length - 1].isFinal) {
-            handleUserSpeech(transcript);
+        if (interimTranscript) {
+            statusDiv.textContent = `🎙️ 识别中: "${interimTranscript}"`;
+        }
+
+        if (finalTranscript) {
+            handleUserSpeech(finalTranscript);
         }
     };
 
@@ -74,7 +80,15 @@ function initSpeechRecognition() {
     };
 
     recognition.onend = () => {
-        resetRecordBtn();
+        if (isRecording) {
+            try {
+                recognition.start();
+            } catch (err) {
+                resetRecordBtn();
+            }
+        } else {
+            resetRecordBtn();
+        }
     };
 
     return true;
@@ -84,25 +98,25 @@ function resetRecordBtn() {
     isRecording = false;
     recordBtn.classList.remove('recording');
     recordBtn.textContent = '🎤 点击说话';
+    recordBtn.disabled = false;
+    statusDiv.textContent = '⚪ 准备就绪';
 }
 
 // ========== 处理用户语音输入 ==========
 async function handleUserSpeech(transcript) {
-    if (!transcript.trim()) {
-        statusDiv.textContent = '⚠️ 未识别到内容，请重试';
-        return;
-    }
+    if (!transcript.trim()) return;
+
+    isRecording = false;
+    recognition.stop();
 
     addUserMessage(transcript);
     statusDiv.textContent = '🤖 AI 思考中...';
 
-    // 语法检查
     const corrections = checkGrammar(transcript);
     if (corrections.length > 0) {
         showGrammarCorrections(corrections);
     }
 
-    // 获取 AI 回复
     await getAIResponse(transcript);
 }
 
@@ -114,6 +128,7 @@ recordBtn.addEventListener('click', () => {
     }
 
     if (isRecording) {
+        isRecording = false;
         recognition.stop();
     } else {
         try {
@@ -132,12 +147,11 @@ sceneBtns.forEach(btn => {
         btn.classList.add('active');
         currentScene = btn.dataset.scene;
 
-        // 重置对话
         conversationHistory = [];
         grammarCorrections = [];
 
-        // 如果正在录音则停止
         if (isRecording && recognition) {
+            isRecording = false;
             recognition.stop();
         }
 
@@ -146,7 +160,7 @@ sceneBtns.forEach(btn => {
     });
 });
 
-// ========== 语法检查（演示用）==========
+// ========== 语法检查 ==========
 function checkGrammar(text) {
     const corrections = [];
     const lowerText = text.toLowerCase();
@@ -155,16 +169,22 @@ function checkGrammar(text) {
         corrections.push('❌ "go to home" → ✅ "go home" (home 前不加 to)');
     }
     if (lowerText.includes('i am agree')) {
-        corrections.push('❌ "I am agree" → ✅ "I agree" (agree 是动词)');
+        corrections.push('❌ "I am agree" → ✅ "I agree" (agree 是动词，不需要 be 动词)');
     }
     if (lowerText.includes('i have 20 years')) {
         corrections.push('❌ "I have 20 years" → ✅ "I am 20 years old"');
     }
-    if (lowerText.match(/go.*yesterday/)) {
-        corrections.push('❌ 过去时间用过去式: "go" → "went"');
+    if (lowerText.match(/\bgo\b.*\byesterday\b/)) {
+        corrections.push('❌ 过去时间应用过去式: "go" → ✅ "went"');
     }
-    if (text.includes(' ') && !text.match(/[.!?]$/)) {
-        corrections.push('💡 建议在句尾加标点符号，如 . 或 ?');
+    if (lowerText.includes('i am boring')) {
+        corrections.push('❌ "I am boring" → ✅ "I am bored" (boring 表示令人无聊)');
+    }
+    if (lowerText.includes('very very')) {
+        corrections.push('💡 "very very" 过于口语化 → ✅ 可用 "extremely" 或 "incredibly" 替代');
+    }
+    if (lowerText.match(/\bdepends of\b/)) {
+        corrections.push('❌ "depends of" → ✅ "depends on"');
     }
 
     return corrections;
@@ -180,7 +200,7 @@ function showGrammarCorrections(corrections) {
     }, 5000);
 }
 
-// ========== AI 对话（模拟）==========
+// ========== AI 对话（模拟，PR #4 接入真实 API）==========
 async function getAIResponse(userMessage) {
     if (userMessage) {
         conversationHistory.push({ role: 'user', content: userMessage });
@@ -214,20 +234,42 @@ async function getAIResponse(userMessage) {
 
     addAIMessage(randomResponse);
     conversationHistory.push({ role: 'assistant', content: randomResponse });
-    statusDiv.textContent = '⚪ 准备就绪';
 
-    speakText(randomResponse);
+    recordBtn.disabled = true;
+    statusDiv.textContent = '🔊 AI 正在说话...';
+
+    speakText(randomResponse, () => {
+        resetRecordBtn();
+    });
 }
 
 // ========== 文字转语音 ==========
-function speakText(text) {
+function speakText(text, onEndCallback) {
     if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'en-US';
         utterance.rate = 0.9;
         utterance.pitch = 1.0;
         window.speechSynthesis.cancel();
+
+        // 兜底计时器，防止 onend 不触发导致按钮永久禁用
+        const fallbackTimer = setTimeout(() => {
+            if (onEndCallback) onEndCallback();
+        }, text.length * 80 + 1000);
+
+        utterance.onend = () => {
+            clearTimeout(fallbackTimer);
+            if (onEndCallback) onEndCallback();
+        };
+
+        utterance.onerror = () => {
+            clearTimeout(fallbackTimer);
+            if (onEndCallback) onEndCallback();
+        };
+
         window.speechSynthesis.speak(utterance);
+    } else {
+        if (onEndCallback) onEndCallback();
     }
 }
 
@@ -258,7 +300,7 @@ reportBtn.addEventListener('click', () => {
         <p>🎤 发音评分：${avgScore}</p>
         <p>✏️ 发现语法问题：${uniqueCorrections.length} 个</p>
         <hr>
-        <h4>💡 提升建议：</h4>
+        <h4>💡 本次发现的问题：</h4>
         <ul>
     `;
 
@@ -267,7 +309,7 @@ reportBtn.addEventListener('click', () => {
             reportHtml += `<li>${c}</li>`;
         });
     } else {
-        reportHtml += `<li>👍 语法表现不错！继续练习可以更流利。</li>`;
+        reportHtml += `<li>👍 本次对话未检测到常见语法错误，继续保持！</li>`;
     }
 
     reportHtml += `

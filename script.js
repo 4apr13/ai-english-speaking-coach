@@ -7,7 +7,7 @@ let recognition = null;
 
 // ========== DOM 元素 ==========
 const sceneBtns = document.querySelectorAll('.scene-btn');
-const chatBox = getElementById('chatBox');
+const chatBox = document.getElementById('chatBox');
 const recordBtn = document.getElementById('recordBtn');
 const statusDiv = document.getElementById('status');
 const correctionSection = document.getElementById('correctionSection');

@@ -1,16 +1,12 @@
 // ========== 全局变量 ==========
 let currentScene = 'interview';
 let isRecording = false;
+let isSpeaking = false;
+let isWaiting = false;
 let conversationHistory = [];
 let grammarCorrections = [];
 let recognition = null;
-
-// 场景对应的系统提示词
-const scenePrompts = {
-    interview: "You are a professional job interviewer. Ask the user one question at a time about their work experience, skills, or career goals. Keep responses short (1-2 sentences). After the user answers, give a brief positive feedback and ask a follow-up question.",
-    ordering: "You are a friendly restaurant waiter. Ask the user what they would like to order. Keep responses short. Help them order food and drinks naturally.",
-    meeting: "You are a team meeting leader. Discuss a project update. Keep responses professional but friendly. Ask for the user's opinion on one topic at a time."
-};
+let currentUtterance = null;
 
 // ========== DOM 元素 ==========
 const sceneBtns = document.querySelectorAll('.scene-btn');
@@ -23,12 +19,38 @@ const reportBtn = document.getElementById('reportBtn');
 const reportSection = document.getElementById('reportSection');
 const reportContent = document.getElementById('reportContent');
 
+// ========== 按钮状态管理 ==========
+function setBtnState(state) {
+    recordBtn.classList.remove('recording');
+    recordBtn.disabled = false;
+
+    switch(state) {
+        case 'idle':
+            recordBtn.textContent = '🎤 点击说话';
+            statusDiv.textContent = '⚪ 准备就绪，可以开始说话';
+            break;
+        case 'recording':
+            recordBtn.classList.add('recording');
+            recordBtn.textContent = '⏹️ 点击停止';
+            statusDiv.textContent = '🔴 录音中，点击停止并发送...';
+            break;
+        case 'waiting':
+            recordBtn.disabled = true;
+            recordBtn.textContent = '⏳ AI 思考中...';
+            statusDiv.textContent = '🤖 AI 思考中，请稍候...';
+            break;
+        case 'speaking':
+            recordBtn.textContent = '⏸️ 点击打断 AI';
+            statusDiv.textContent = '🔊 AI 正在说话，点击可打断...';
+            break;
+    }
+}
+
 // ========== 初始化 Web Speech API ==========
 function initSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
     if (!SpeechRecognition) {
-        statusDiv.textContent = '❌ 当前浏览器不支持语音识别，请使用 Chrome';
+        statusDiv.textContent = '❌ 请使用 Chrome 浏览器';
         recordBtn.disabled = true;
         return false;
     }
@@ -40,15 +62,12 @@ function initSpeechRecognition() {
 
     recognition.onstart = () => {
         isRecording = true;
-        recordBtn.classList.add('recording');
-        recordBtn.textContent = '🎤 录音中... 再次点击结束';
-        statusDiv.textContent = '🔴 正在录音，请说英语...';
+        setBtnState('recording');
     };
 
     recognition.onresult = (event) => {
         let interimTranscript = '';
         let finalTranscript = '';
-
         for (let i = event.resultIndex; i < event.results.length; i++) {
             const transcript = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
@@ -57,88 +76,90 @@ function initSpeechRecognition() {
                 interimTranscript += transcript;
             }
         }
-
         if (interimTranscript) {
             statusDiv.textContent = `🎙️ 识别中: "${interimTranscript}"`;
         }
-
         if (finalTranscript) {
-            handleUserSpeech(finalTranscript);
+            recognition._pendingTranscript = (recognition._pendingTranscript || '') + finalTranscript;
         }
     };
 
     recognition.onerror = (event) => {
-        console.error('语音识别错误:', event.error);
-        if (event.error === 'no-speech') {
-            statusDiv.textContent = '⚠️ 没有检测到声音，请重试';
-        } else if (event.error === 'not-allowed') {
-            statusDiv.textContent = '❌ 麦克风权限被拒绝，请在浏览器设置中允许';
-        } else {
-            statusDiv.textContent = `❌ 识别错误: ${event.error}`;
+        if (event.error === 'no-speech') return;
+        if (event.error === 'not-allowed') {
+            statusDiv.textContent = '❌ 麦克风权限被拒绝';
         }
-        resetRecordBtn();
+        isRecording = false;
+        setBtnState('idle');
     };
 
     recognition.onend = () => {
         if (isRecording) {
-            try {
-                recognition.start();
-            } catch (err) {
-                resetRecordBtn();
-            }
-        } else {
-            resetRecordBtn();
+            try { recognition.start(); } catch (err) {}
         }
     };
 
     return true;
 }
 
-function resetRecordBtn() {
-    isRecording = false;
-    recordBtn.classList.remove('recording');
-    recordBtn.textContent = '🎤 点击说话';
-    recordBtn.disabled = false;
-    statusDiv.textContent = '⚪ 准备就绪';
-}
+// ========== 录音按钮点击 ==========
+recordBtn.addEventListener('click', () => {
+    if (isWaiting) return;
 
-// ========== 处理用户语音输入 ==========
-async function handleUserSpeech(transcript) {
-    if (!transcript.trim()) return;
-
-    isRecording = false;
-    recognition.stop();
-
-    addUserMessage(transcript);
-    statusDiv.textContent = '🤖 AI 思考中...';
-
-    const corrections = checkGrammar(transcript);
-    if (corrections.length > 0) {
-        showGrammarCorrections(corrections);
+    if (isSpeaking) {
+        interruptAI();
+        return;
     }
 
-    await getAIResponse(transcript);
-}
+    if (isRecording) {
+        stopAndSubmit();
+        return;
+    }
 
-// ========== 录音按钮：点击开关 ==========
-recordBtn.addEventListener('click', () => {
     if (!recognition) {
         const supported = initSpeechRecognition();
         if (!supported) return;
     }
-
-    if (isRecording) {
-        isRecording = false;
-        recognition.stop();
-    } else {
-        try {
-            recognition.start();
-        } catch (err) {
-            console.error('启动识别失败:', err);
-            statusDiv.textContent = '❌ 启动失败，请刷新页面重试';
-        }
+    recognition._pendingTranscript = '';
+    try {
+        recognition.start();
+    } catch (err) {
+        statusDiv.textContent = '❌ 启动失败，请刷新页面重试';
     }
 });
+
+// ========== 打断 AI ==========
+function interruptAI() {
+    if (currentUtterance) {
+        window.speechSynthesis.cancel();
+    }
+    isSpeaking = false;
+    if (!recognition) initSpeechRecognition();
+    recognition._pendingTranscript = '';
+    try {
+        recognition.start();
+    } catch (err) {}
+}
+
+// ========== 停止录音并提交 ==========
+function stopAndSubmit() {
+    isRecording = false;
+    recognition.stop();
+
+    const transcript = (recognition._pendingTranscript || '').trim();
+    recognition._pendingTranscript = '';
+
+    if (!transcript) {
+        statusDiv.textContent = '⚠️ 未识别到内容，请重试';
+        setBtnState('idle');
+        return;
+    }
+
+    addUserMessage(transcript);
+    isWaiting = true;
+    setBtnState('waiting');
+    getAIResponse(transcript);
+}
 
 // ========== 场景切换 ==========
 sceneBtns.forEach(btn => {
@@ -146,7 +167,6 @@ sceneBtns.forEach(btn => {
         sceneBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentScene = btn.dataset.scene;
-
         conversationHistory = [];
         grammarCorrections = [];
 
@@ -154,120 +174,96 @@ sceneBtns.forEach(btn => {
             isRecording = false;
             recognition.stop();
         }
+        if (isSpeaking) {
+            window.speechSynthesis.cancel();
+            isSpeaking = false;
+        }
 
-        addAIMessage(`Scene changed to ${btn.textContent}. Let's start!`);
-        getAIResponse("Let's begin the conversation. Say something to start.");
+        chatBox.innerHTML = '';
+        addAIMessage(`已切换到「${btn.textContent}」场景，我们开始吧！`);
+        getAIResponse(null);
     });
 });
 
-// ========== 语法检查 ==========
-function checkGrammar(text) {
-    const corrections = [];
-    const lowerText = text.toLowerCase();
-
-    if (lowerText.includes('go to home')) {
-        corrections.push('❌ "go to home" → ✅ "go home" (home 前不加 to)');
-    }
-    if (lowerText.includes('i am agree')) {
-        corrections.push('❌ "I am agree" → ✅ "I agree" (agree 是动词，不需要 be 动词)');
-    }
-    if (lowerText.includes('i have 20 years')) {
-        corrections.push('❌ "I have 20 years" → ✅ "I am 20 years old"');
-    }
-    if (lowerText.match(/\bgo\b.*\byesterday\b/)) {
-        corrections.push('❌ 过去时间应用过去式: "go" → ✅ "went"');
-    }
-    if (lowerText.includes('i am boring')) {
-        corrections.push('❌ "I am boring" → ✅ "I am bored" (boring 表示令人无聊)');
-    }
-    if (lowerText.includes('very very')) {
-        corrections.push('💡 "very very" 过于口语化 → ✅ 可用 "extremely" 或 "incredibly" 替代');
-    }
-    if (lowerText.match(/\bdepends of\b/)) {
-        corrections.push('❌ "depends of" → ✅ "depends on"');
-    }
-
-    return corrections;
-}
-
-function showGrammarCorrections(corrections) {
-    grammarCorrections.push(...corrections);
-    correctionSection.style.display = 'block';
-    correctionText.innerHTML = corrections.join('<br>');
-
-    setTimeout(() => {
-        correctionSection.style.display = 'none';
-    }, 5000);
-}
-
-// ========== AI 对话（模拟，PR #4 接入真实 API）==========
+// ========== 调用 DeepSeek API ==========
 async function getAIResponse(userMessage) {
     if (userMessage) {
         conversationHistory.push({ role: 'user', content: userMessage });
     }
 
-    const responses = {
-        interview: [
-            "That's interesting! Can you tell me more about your previous work experience?",
-            "Great answer! What do you consider your biggest strength?",
-            "I see. Why do you want to join our company?",
-            "Good! Where do you see yourself in 5 years?"
-        ],
-        ordering: [
-            "Would you like to see our menu? We have specials today.",
-            "Excellent choice! Would you like anything to drink?",
-            "Sure! Would you like that with fries or salad?",
-            "Perfect! I'll bring that right away."
-        ],
-        meeting: [
-            "Thanks for sharing. What's your opinion on this project timeline?",
-            "Good point. How do you think we can improve our workflow?",
-            "I appreciate your input. Any concerns about the budget?",
-            "Let's move to the next agenda item. Any updates from your team?"
-        ]
-    };
+    const systemPrompt = SCENE_PROMPTS[currentScene] || SCENE_PROMPTS.interview;
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        ...conversationHistory
+    ];
 
-    const sceneResponses = responses[currentScene] || responses.interview;
-    const randomResponse = sceneResponses[Math.floor(Math.random() * sceneResponses.length)];
+    try {
+        const response = await fetch(CONFIG.API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${CONFIG.DEEPSEEK_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: CONFIG.MODEL,
+                messages: messages,
+                max_tokens: 150,
+                temperature: 0.8
+            })
+        });
 
-    await new Promise(resolve => setTimeout(resolve, 800));
+        if (!response.ok) throw new Error(`API 错误: ${response.status}`);
 
-    addAIMessage(randomResponse);
-    conversationHistory.push({ role: 'assistant', content: randomResponse });
+        const data = await response.json();
+        const aiReply = data.choices[0].message.content.trim();
 
-    recordBtn.disabled = true;
-    statusDiv.textContent = '🔊 AI 正在说话...';
+        addAIMessage(aiReply);
+        conversationHistory.push({ role: 'assistant', content: aiReply });
 
-    speakText(randomResponse, () => {
-        resetRecordBtn();
-    });
+        isWaiting = false;
+        isSpeaking = true;
+        setBtnState('speaking');
+        speakText(aiReply, () => {
+            isSpeaking = false;
+            setBtnState('idle');
+        });
+
+    } catch (err) {
+        console.error('API 调用失败:', err);
+        statusDiv.textContent = `❌ 连接失败: ${err.message}`;
+        isWaiting = false;
+        isSpeaking = false;
+        setBtnState('idle');
+    }
 }
 
 // ========== 文字转语音 ==========
 function speakText(text, onEndCallback) {
     if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'en-US';
-        utterance.rate = 0.9;
-        utterance.pitch = 1.0;
+        currentUtterance = new SpeechSynthesisUtterance(text);
+        currentUtterance.lang = 'en-US';
+        currentUtterance.rate = 0.9;
+        currentUtterance.pitch = 1.0;
         window.speechSynthesis.cancel();
 
-        // 兜底计时器，防止 onend 不触发导致按钮永久禁用
         const fallbackTimer = setTimeout(() => {
+            isSpeaking = false;
             if (onEndCallback) onEndCallback();
         }, text.length * 80 + 1000);
 
-        utterance.onend = () => {
+        currentUtterance.onend = () => {
             clearTimeout(fallbackTimer);
+            currentUtterance = null;
             if (onEndCallback) onEndCallback();
         };
 
-        utterance.onerror = () => {
+        currentUtterance.onerror = () => {
             clearTimeout(fallbackTimer);
+            currentUtterance = null;
             if (onEndCallback) onEndCallback();
         };
 
-        window.speechSynthesis.speak(utterance);
+        window.speechSynthesis.speak(currentUtterance);
     } else {
         if (onEndCallback) onEndCallback();
     }
@@ -275,55 +271,81 @@ function speakText(text, onEndCallback) {
 
 // ========== 界面更新 ==========
 function addUserMessage(text) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'user-message';
-    messageDiv.textContent = `🧑 ${text}`;
-    chatBox.appendChild(messageDiv);
+    const div = document.createElement('div');
+    div.className = 'user-message';
+    div.textContent = `🧑 ${text}`;
+    chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
 function addAIMessage(text) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'ai-message';
-    messageDiv.textContent = `👩‍💼 ${text}`;
-    chatBox.appendChild(messageDiv);
+    const div = document.createElement('div');
+    div.className = 'ai-message';
+    div.textContent = `👩‍💼 ${text}`;
+    chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// ========== 生成课后总结 ==========
-reportBtn.addEventListener('click', () => {
-    const avgScore = '待接入评测系统';
-    const uniqueCorrections = [...new Set(grammarCorrections)];
-
-    let reportHtml = `
-        <p>📊 对话轮数：${Math.floor(conversationHistory.length / 2)} 轮</p>
-        <p>🎤 发音评分：${avgScore}</p>
-        <p>✏️ 发现语法问题：${uniqueCorrections.length} 个</p>
-        <hr>
-        <h4>💡 本次发现的问题：</h4>
-        <ul>
-    `;
-
-    if (uniqueCorrections.length > 0) {
-        uniqueCorrections.forEach(c => {
-            reportHtml += `<li>${c}</li>`;
-        });
-    } else {
-        reportHtml += `<li>👍 本次对话未检测到常见语法错误，继续保持！</li>`;
+// ========== 课后总结 ==========
+reportBtn.addEventListener('click', async () => {
+    if (conversationHistory.length < 2) {
+        alert('请先进行一段对话再生成总结');
+        return;
     }
 
-    reportHtml += `
-            <li>📖 建议每天练习15分钟，坚持一周会有明显进步。</li>
-        </ul>
-        <hr>
-        <p><strong>🏆 继续保持！Practice makes perfect!</strong></p>
-    `;
+    reportBtn.textContent = '⏳ 生成中...';
+    reportBtn.disabled = true;
 
-    reportContent.innerHTML = reportHtml;
-    reportSection.style.display = 'block';
-    reportSection.scrollIntoView({ behavior: 'smooth' });
+    try {
+        const response = await fetch(CONFIG.API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${CONFIG.DEEPSEEK_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: CONFIG.MODEL,
+                messages: [
+                    {
+                        role: 'system',
+                        content: `You are an English teacher. Analyze the student's conversation and provide a structured learning report in Chinese. Include:
+1. 对话表现总结（2-3句话）
+2. 优点（2-3条）
+3. 需要改进的语法/表达问题（列出具体例子）
+4. 本次使用的好表达（2-3个）
+5. 下次练习建议`
+                    },
+                    {
+                        role: 'user',
+                        content: `请分析以下对话记录：\n${conversationHistory.map(m => `${m.role === 'user' ? '学生' : 'AI'}: ${m.content}`).join('\n')}`
+                    }
+                ],
+                max_tokens: 500
+            })
+        });
+
+        const data = await response.json();
+        const summary = data.choices[0].message.content.trim();
+
+        reportContent.innerHTML = `
+            <div style="line-height:1.8; white-space:pre-wrap;">${summary}</div>
+            <hr style="margin:16px 0">
+            <p>📊 对话轮数：${Math.floor(conversationHistory.length / 2)} 轮</p>
+            <p><strong>🏆 Practice makes perfect!</strong></p>
+        `;
+        reportSection.style.display = 'block';
+        reportSection.scrollIntoView({ behavior: 'smooth' });
+
+    } catch (err) {
+        reportContent.innerHTML = `<p>❌ 生成失败，请检查网络连接</p>`;
+        reportSection.style.display = 'block';
+    }
+
+    reportBtn.textContent = '📋 生成课后总结';
+    reportBtn.disabled = false;
 });
 
 // ========== 初始化 ==========
-addAIMessage("👋 Hi! I'm your AI English coach. Click the mic button and speak in English. Let's practice! Choose a scene above to start.");
+addAIMessage("👋 Hi! I'm your AI English coach. Choose a scene above and click the mic to start speaking!");
+setBtnState('idle');
 initSpeechRecognition();

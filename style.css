@@ -106,11 +106,13 @@ h1 {
     border: none;
     border-radius: 50px;
     cursor: pointer;
-    transition: transform 0.2s;
+    transition: all 0.3s;
 }
 
-.record-btn:active {
-    transform: scale(0.95);
+.record-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
 }
 
 .record-btn.recording {

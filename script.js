@@ -18,6 +18,7 @@ const correctionText = document.getElementById('correctionText');
 const reportBtn = document.getElementById('reportBtn');
 const reportSection = document.getElementById('reportSection');
 const reportContent = document.getElementById('reportContent');
+const apiKeyInput = document.getElementById('apiKeyInput');
 
 // ========== 按钮状态管理 ==========
 function setBtnState(state) {
@@ -54,7 +55,6 @@ function initSpeechRecognition() {
         recordBtn.disabled = true;
         return false;
     }
-
     recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.continuous = true;
@@ -98,7 +98,6 @@ function initSpeechRecognition() {
             try { recognition.start(); } catch (err) {}
         }
     };
-
     return true;
 }
 
@@ -169,7 +168,6 @@ sceneBtns.forEach(btn => {
         currentScene = btn.dataset.scene;
         conversationHistory = [];
         grammarCorrections = [];
-
         if (isRecording && recognition) {
             isRecording = false;
             recognition.stop();

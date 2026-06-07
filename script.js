@@ -7,6 +7,10 @@ let conversationHistory = [];
 let grammarCorrections = [];
 let recognition = null;
 let currentUtterance = null;
+let voicesLoaded = false;
+let sessionStartTime = null;
+let totalWords = 0;
+let pronunciationIssues = [];
 
 // ========== DOM 元素 ==========
 const sceneBtns = document.querySelectorAll('.scene-btn');
@@ -19,9 +23,20 @@ const reportBtn = document.getElementById('reportBtn');
 const reportSection = document.getElementById('reportSection');
 const reportContent = document.getElementById('reportContent');
 
+// ========== 提前加载 voices ==========
+function loadVoices() {
+    if (voicesLoaded) return;
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) voicesLoaded = true;
+}
+window.speechSynthesis.onvoiceschanged = () => {
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = null;
+};
+loadVoices();
+
 // ========== 按钮状态管理 ==========
 function setBtnState(state) {
-    // state: 'idle' | 'recording' | 'waiting' | 'speaking'
     recordBtn.classList.remove('recording');
     recordBtn.disabled = false;
 
@@ -81,13 +96,12 @@ function initSpeechRecognition() {
             statusDiv.textContent = `🎙️ 识别中: "${interimTranscript}"`;
         }
         if (finalTranscript) {
-            // 有最终结果时先存起来但不自动提交，等用户点击停止
             recognition._pendingTranscript = (recognition._pendingTranscript || '') + finalTranscript;
         }
     };
 
     recognition.onerror = (event) => {
-        if (event.error === 'no-speech') return; // 忽略静音，不打断用户思考
+        if (event.error === 'no-speech') return;
         if (event.error === 'not-allowed') {
             statusDiv.textContent = '❌ 麦克风权限被拒绝';
         }
@@ -96,7 +110,6 @@ function initSpeechRecognition() {
     };
 
     recognition.onend = () => {
-        // continuous 模式下意外停止时自动重启（用户没有主动停止的情况）
         if (isRecording) {
             try { recognition.start(); } catch (err) {}
         }
@@ -107,22 +120,18 @@ function initSpeechRecognition() {
 
 // ========== 录音按钮点击 ==========
 recordBtn.addEventListener('click', () => {
-    // 等待状态：锁定，不响应
     if (isWaiting) return;
 
-    // AI 说话状态：点击打断
     if (isSpeaking) {
         interruptAI();
         return;
     }
 
-    // 录音状态：点击停止并提交
     if (isRecording) {
         stopAndSubmit();
         return;
     }
 
-    // 空闲状态：开始录音
     if (!recognition) {
         const supported = initSpeechRecognition();
         if (!supported) return;
@@ -137,16 +146,47 @@ recordBtn.addEventListener('click', () => {
 
 // ========== 打断 AI ==========
 function interruptAI() {
-    if (currentUtterance) {
-        window.speechSynthesis.cancel();
-    }
+    window.speechSynthesis.cancel();
+    currentUtterance = null;
     isSpeaking = false;
-    // 打断后直接开始录音
     if (!recognition) initSpeechRecognition();
     recognition._pendingTranscript = '';
     try {
         recognition.start();
     } catch (err) {}
+}
+
+// ========== 发音评分逻辑 ==========
+function analyzePronunciation(transcript, scene) {
+    let issues = [];
+    let score = 5;
+
+    // 检测非英语字符（中文等）
+    const nonEnglishPattern = /[\u4e00-\u9fa5]/;
+    if (nonEnglishPattern.test(transcript)) {
+        issues.push('识别到非英语内容，可能存在发音不清晰');
+        score -= 1.5;
+    }
+
+    // 检测明显乱码或单字母重复
+    const garbledPattern = /([a-z])\1{3,}/i;
+    if (garbledPattern.test(transcript)) {
+        issues.push('部分词汇识别异常，建议放慢语速');
+        score -= 1;
+    }
+
+    // 检测句子过短（可能是识别失败）
+    const words = transcript.trim().split(/\s+/);
+    if (words.length < 2 && transcript.length > 0) {
+        issues.push('识别内容较短，可能存在发音不清晰');
+        score -= 0.5;
+    }
+
+    // 统计词数
+    totalWords += words.length;
+
+    score = Math.max(1, Math.min(5, score));
+    return { score, issues };
 }
 
 // ========== 停止录音并提交 ==========
@@ -163,10 +203,17 @@ function stopAndSubmit() {
         return;
     }
 
+    // 发音分析
+    const pronResult = analyzePronunciation(transcript, currentScene);
+    pronunciationIssues.push(pronResult);
+
     addUserMessage(transcript);
     isWaiting = true;
     setBtnState('waiting');
-    getAIResponse(transcript);
+
+    setTimeout(() => {
+        getAIResponse(transcript);
+    }, 500);
 }
 
 // ========== 场景切换 ==========
@@ -177,6 +224,9 @@ sceneBtns.forEach(btn => {
         currentScene = btn.dataset.scene;
         conversationHistory = [];
         grammarCorrections = [];
+        pronunciationIssues = [];
+        totalWords = 0;
+        sessionStartTime = new Date();
 
         if (isRecording && recognition) {
             isRecording = false;
@@ -228,12 +278,10 @@ async function getAIResponse(userMessage) {
         addAIMessage(aiReply);
         conversationHistory.push({ role: 'assistant', content: aiReply });
 
-        // AI 思考结束，进入说话状态
         isWaiting = false;
         isSpeaking = true;
         setBtnState('speaking');
         speakText(aiReply, () => {
-            // AI 说完，进入空闲状态
             isSpeaking = false;
             setBtnState('idle');
         });
@@ -249,17 +297,25 @@ async function getAIResponse(userMessage) {
 
 // ========== 文字转语音 ==========
 function speakText(text, onEndCallback) {
-    if ('speechSynthesis' in window) {
+    if (!('speechSynthesis' in window)) {
+        if (onEndCallback) onEndCallback();
+        return;
+    }
+
+    const voices = window.speechSynthesis.getVoices();
+    const englishVoice = voices.find(v => v.lang.startsWith('en-')) || voices[0];
+
+    setTimeout(() => {
         currentUtterance = new SpeechSynthesisUtterance(text);
         currentUtterance.lang = 'en-US';
         currentUtterance.rate = 0.9;
         currentUtterance.pitch = 1.0;
-        window.speechSynthesis.cancel();
+        if (englishVoice) currentUtterance.voice = englishVoice;
 
         const fallbackTimer = setTimeout(() => {
             isSpeaking = false;
             if (onEndCallback) onEndCallback();
-        }, text.length * 80 + 1000);
+        }, text.length * 80 + 2000);
 
         currentUtterance.onend = () => {
             clearTimeout(fallbackTimer);
@@ -267,16 +323,15 @@ function speakText(text, onEndCallback) {
             if (onEndCallback) onEndCallback();
         };
 
-        currentUtterance.onerror = () => {
+        currentUtterance.onerror = (e) => {
+            if (e.error === 'interrupted') return;
             clearTimeout(fallbackTimer);
             currentUtterance = null;
             if (onEndCallback) onEndCallback();
         };
 
         window.speechSynthesis.speak(currentUtterance);
-    } else {
-        if (onEndCallback) onEndCallback();
-    }
+    }, 800);
 }
 
 // ========== 界面更新 ==========
@@ -296,6 +351,14 @@ function addAIMessage(text) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
+// ========== 生成星星评分 ==========
+function renderStars(score) {
+    const full = Math.floor(score);
+    const half = score - full >= 0.5 ? 1 : 0;
+    const empty = 5 - full - half;
+    return '★'.repeat(full) + (half ? '½' : '') + '☆'.repeat(empty);
+}
+
 // ========== 课后总结 ==========
 reportBtn.addEventListener('click', async () => {
     if (conversationHistory.length < 2) {
@@ -306,7 +369,18 @@ reportBtn.addEventListener('click', async () => {
     reportBtn.textContent = '⏳ 生成中...';
     reportBtn.disabled = true;
 
+    // 计算本地数据
+    const rounds = Math.floor(conversationHistory.length / 2);
+    const duration = sessionStartTime
+        ? Math.floor((new Date() - sessionStartTime) / 1000 / 60)
+        : '--';
+    const avgPronScore = pronunciationIssues.length > 0
+        ? (pronunciationIssues.reduce((a, b) => a + b.score, 0) / pronunciationIssues.length).toFixed(1)
+        : '5.0';
+    const allPronIssues = pronunciationIssues.flatMap(p => p.issues);
+
     try {
+        // 请求 AI 分析语法和表达
         const response = await fetch(CONFIG.API_URL, {
             method: 'POST',
             headers: {
@@ -318,36 +392,116 @@ reportBtn.addEventListener('click', async () => {
                 messages: [
                     {
                         role: 'system',
-                        content: `You are an English teacher. Analyze the student's conversation and provide a structured learning report in Chinese. Include:
-1. 对话表现总结（2-3句话）
-2. 优点（2-3条）
-3. 需要改进的语法/表达问题（列出具体例子）
-4. 本次使用的好表达（2-3个）
-5. 下次练习建议`
+                        content: `你是一位专业英语老师，请严格按照以下 JSON 格式分析学生对话，不要输出任何其他内容：
+{
+  "grammar_errors": [
+    {
+      "wrong": "错误的表达",
+      "correct": "正确的表达",
+      "reason": "错误原因（一句话）"
+    }
+  ],
+  "good_expressions": [
+    "好的表达1",
+    "好的表达2"
+  ],
+  "suggestion": "下次练习的一句话重点建议"
+}`
                     },
                     {
                         role: 'user',
-                        content: `请分析以下对话记录：\n${conversationHistory.map(m => `${m.role === 'user' ? '学生' : 'AI'}: ${m.content}`).join('\n')}`
+                        content: `请分析以下对话：\n${conversationHistory.map(m => `${m.role === 'user' ? '学生' : 'AI'}: ${m.content}`).join('\n')}`
                     }
                 ],
-                max_tokens: 500
+                max_tokens: 800,
+                temperature: 0.3
             })
         });
 
         const data = await response.json();
-        const summary = data.choices[0].message.content.trim();
+        let analysisText = data.choices[0].message.content.trim();
+
+        // 清理可能的 markdown 格式
+        analysisText = analysisText.replace(/```json|```/g, '').trim();
+        const analysis = JSON.parse(analysisText);
+
+        // 渲染报告
+        const grammarHTML = analysis.grammar_errors.length > 0
+            ? analysis.grammar_errors.map((e, i) => `
+                <div class="error-card">
+                    <div class="error-num">错误 ${i + 1}</div>
+                    <div class="error-wrong">❌ ${e.wrong}</div>
+                    <div class="error-correct">✅ ${e.correct}</div>
+                    <div class="error-reason">💡 ${e.reason}</div>
+                </div>
+            `).join('')
+            : '<div class="no-error">👍 本次对话未发现明显语法错误</div>';
+
+        const goodExpHTML = analysis.good_expressions.length > 0
+            ? analysis.good_expressions.map(e => `<div class="good-item">🌟 ${e}</div>`).join('')
+            : '<div class="no-error">继续积累地道表达！</div>';
+
+        const pronIssuesHTML = allPronIssues.length > 0
+            ? allPronIssues.map(i => `<div class="pron-issue">⚠️ ${i}</div>`).join('')
+            : '<div class="no-error">👍 发音识别正常，继续保持！</div>';
 
         reportContent.innerHTML = `
-            <div style="line-height:1.8; white-space:pre-wrap;">${summary}</div>
-            <hr style="margin:16px 0">
-            <p>📊 对话轮数：${Math.floor(conversationHistory.length / 2)} 轮</p>
-            <p><strong>🏆 Practice makes perfect!</strong></p>
+            <div class="report-wrap">
+
+                <!-- 模块一：概览数据 -->
+                <div class="report-overview">
+                    <div class="overview-card">
+                        <div class="overview-num">${rounds}</div>
+                        <div class="overview-label">💬 对话轮数</div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="overview-num">${duration}</div>
+                        <div class="overview-label">⏱️ 练习时长(分)</div>
+                    </div>
+                    <div class="overview-card">
+                        <div class="overview-num">${totalWords}</div>
+                        <div class="overview-label">📝 总词数</div>
+                    </div>
+                </div>
+
+                <!-- 模块二：发音评分 -->
+                <div class="report-section-block">
+                    <div class="section-title">🎤 发音评分</div>
+                    <div class="pron-score">
+                        <span class="stars">${renderStars(parseFloat(avgPronScore))}</span>
+                        <span class="score-num">${avgPronScore} / 5.0</span>
+                    </div>
+                    <div class="pron-issues">${pronIssuesHTML}</div>
+                </div>
+
+                <!-- 模块三：语法纠错 -->
+                <div class="report-section-block">
+                    <div class="section-title">✏️ 语法纠错</div>
+                    <div class="grammar-count">本次发现 <strong>${analysis.grammar_errors.length}</strong> 个语法问题</div>
+                    ${grammarHTML}
+                </div>
+
+                <!-- 模块四：表达亮点 -->
+                <div class="report-section-block">
+                    <div class="section-title">🌟 表达亮点</div>
+                    ${goodExpHTML}
+                </div>
+
+                <!-- 模块五：下次建议 -->
+                <div class="report-section-block suggestion-block">
+                    <div class="section-title">📌 下次练习重点</div>
+                    <div class="suggestion-text">${analysis.suggestion}</div>
+                </div>
+
+            </div>
         `;
+
         reportSection.style.display = 'block';
         reportSection.scrollIntoView({ behavior: 'smooth' });
 
     } catch (err) {
-        reportContent.innerHTML = `<p>❌ 生成失败，请检查网络连接</p>`;
+        console.error('总结生成失败:', err);
+        reportContent.innerHTML = `<p>❌ 生成失败，请检查网络连接后重试</p>`;
         reportSection.style.display = 'block';
     }
 
@@ -356,6 +510,7 @@ reportBtn.addEventListener('click', async () => {
 });
 
 // ========== 初始化 ==========
+sessionStartTime = new Date();
 addAIMessage("👋 Hi! I'm your AI English coach. Choose a scene above and click the mic to start speaking!");
 setBtnState('idle');
 initSpeechRecognition();

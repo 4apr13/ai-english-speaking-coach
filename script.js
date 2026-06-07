@@ -18,10 +18,10 @@ const correctionText = document.getElementById('correctionText');
 const reportBtn = document.getElementById('reportBtn');
 const reportSection = document.getElementById('reportSection');
 const reportContent = document.getElementById('reportContent');
-const apiKeyInput = document.getElementById('apiKeyInput');
 
 // ========== 按钮状态管理 ==========
 function setBtnState(state) {
+    // state: 'idle' | 'recording' | 'waiting' | 'speaking'
     recordBtn.classList.remove('recording');
     recordBtn.disabled = false;
 
@@ -55,6 +55,7 @@ function initSpeechRecognition() {
         recordBtn.disabled = true;
         return false;
     }
+
     recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.continuous = true;
@@ -80,12 +81,13 @@ function initSpeechRecognition() {
             statusDiv.textContent = `🎙️ 识别中: "${interimTranscript}"`;
         }
         if (finalTranscript) {
+            // 有最终结果时先存起来但不自动提交，等用户点击停止
             recognition._pendingTranscript = (recognition._pendingTranscript || '') + finalTranscript;
         }
     };
 
     recognition.onerror = (event) => {
-        if (event.error === 'no-speech') return;
+        if (event.error === 'no-speech') return; // 忽略静音，不打断用户思考
         if (event.error === 'not-allowed') {
             statusDiv.textContent = '❌ 麦克风权限被拒绝';
         }
@@ -94,27 +96,33 @@ function initSpeechRecognition() {
     };
 
     recognition.onend = () => {
+        // continuous 模式下意外停止时自动重启（用户没有主动停止的情况）
         if (isRecording) {
             try { recognition.start(); } catch (err) {}
         }
     };
+
     return true;
 }
 
 // ========== 录音按钮点击 ==========
 recordBtn.addEventListener('click', () => {
+    // 等待状态：锁定，不响应
     if (isWaiting) return;
 
+    // AI 说话状态：点击打断
     if (isSpeaking) {
         interruptAI();
         return;
     }
 
+    // 录音状态：点击停止并提交
     if (isRecording) {
         stopAndSubmit();
         return;
     }
 
+    // 空闲状态：开始录音
     if (!recognition) {
         const supported = initSpeechRecognition();
         if (!supported) return;
@@ -133,6 +141,7 @@ function interruptAI() {
         window.speechSynthesis.cancel();
     }
     isSpeaking = false;
+    // 打断后直接开始录音
     if (!recognition) initSpeechRecognition();
     recognition._pendingTranscript = '';
     try {
@@ -168,6 +177,7 @@ sceneBtns.forEach(btn => {
         currentScene = btn.dataset.scene;
         conversationHistory = [];
         grammarCorrections = [];
+
         if (isRecording && recognition) {
             isRecording = false;
             recognition.stop();
@@ -218,10 +228,12 @@ async function getAIResponse(userMessage) {
         addAIMessage(aiReply);
         conversationHistory.push({ role: 'assistant', content: aiReply });
 
+        // AI 思考结束，进入说话状态
         isWaiting = false;
         isSpeaking = true;
         setBtnState('speaking');
         speakText(aiReply, () => {
+            // AI 说完，进入空闲状态
             isSpeaking = false;
             setBtnState('idle');
         });

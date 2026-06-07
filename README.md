@@ -1,5 +1,3 @@
-# ai-english-speaking-coach
-An AI-powered English speaking practice tool with real-time conversation, grammar correction, pronunciation feedback and learning reports.
 # 🎙️ AI 英语口语陪练
 
 > 灵算小队 · AI 驱动的英语口语练习工具

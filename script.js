@@ -13,7 +13,7 @@ let totalWords = 0;
 let pronunciationIssues = [];
 
 // ========== DOM 元素 ==========
-const sceneBtns = document.querySelectorAll('.scene-btn');
+const sceneBtns = document.querySelectorAll('.scene-card');
 const chatBox = document.getElementById('chatBox');
 const recordBtn = document.getElementById('recordBtn');
 const statusDiv = document.getElementById('status');
@@ -39,24 +39,27 @@ loadVoices();
 function setBtnState(state) {
     recordBtn.classList.remove('recording');
     recordBtn.disabled = false;
+    const recordWrap = document.querySelector('.record-wrap');
+    recordWrap.classList.remove('recording-active');
 
     switch(state) {
         case 'idle':
-            recordBtn.textContent = '🎤 点击说话';
+            recordBtn.innerHTML = '<span class="record-icon">🎤</span><span class="record-text">点击说话</span>';
             statusDiv.textContent = '⚪ 准备就绪，可以开始说话';
             break;
         case 'recording':
             recordBtn.classList.add('recording');
-            recordBtn.textContent = '⏹️ 点击停止';
+            recordWrap.classList.add('recording-active');
+            recordBtn.innerHTML = '<span class="record-icon">⏹️</span><span class="record-text">点击停止</span>';
             statusDiv.textContent = '🔴 录音中，点击停止并发送...';
             break;
         case 'waiting':
             recordBtn.disabled = true;
-            recordBtn.textContent = '⏳ AI 思考中...';
+            recordBtn.innerHTML = '<span class="record-icon">⏳</span><span class="record-text">思考中</span>';
             statusDiv.textContent = '🤖 AI 思考中，请稍候...';
             break;
         case 'speaking':
-            recordBtn.textContent = '⏸️ 点击打断 AI';
+            recordBtn.innerHTML = '<span class="record-icon">⏸️</span><span class="record-text">打断AI</span>';
             statusDiv.textContent = '🔊 AI 正在说话，点击可打断...';
             break;
     }
@@ -157,45 +160,40 @@ function interruptAI() {
 }
 
 // ========== 发音评分逻辑 ==========
-function analyzePronunciation(transcript, scene) {
+function analyzePronunciation(transcript) {
     let issues = [];
     let score = 5;
 
-    // 检测非英语字符（中文等）
     const nonEnglishPattern = /[\u4e00-\u9fa5]/;
     if (nonEnglishPattern.test(transcript)) {
         issues.push('识别到非英语内容，可能存在发音不清晰');
         score -= 1.5;
     }
 
-    // 检测明显乱码或单字母重复
     const garbledPattern = /([a-z])\1{3,}/i;
     if (garbledPattern.test(transcript)) {
         issues.push('部分词汇识别异常，建议放慢语速');
         score -= 1;
     }
 
-    // 检测句子过短（可能是识别失败）
     const words = transcript.trim().split(/\s+/);
     if (words.length < 2 && transcript.length > 0) {
         issues.push('识别内容较短，可能存在发音不清晰');
         score -= 0.5;
     }
 
-    // 统计词数
     totalWords += words.length;
-
     score = Math.max(1, Math.min(5, score));
     return { score, issues };
 }
 
 // ========== 停止录音并提交 ==========
 function stopAndSubmit() {
-    isRecording = false;
-    recognition.stop();
-
     const transcript = (recognition._pendingTranscript || '').trim();
     recognition._pendingTranscript = '';
+
+    isRecording = false;
+    recognition.stop();
 
     if (!transcript) {
         statusDiv.textContent = '⚠️ 未识别到内容，请重试';
@@ -203,8 +201,7 @@ function stopAndSubmit() {
         return;
     }
 
-    // 发音分析
-    const pronResult = analyzePronunciation(transcript, currentScene);
+    const pronResult = analyzePronunciation(transcript);
     pronunciationIssues.push(pronResult);
 
     addUserMessage(transcript);
@@ -238,7 +235,7 @@ sceneBtns.forEach(btn => {
         }
 
         chatBox.innerHTML = '';
-        addAIMessage(`已切换到「${btn.textContent}」场景，我们开始吧！`);
+        addAIMessage(`已切换到「${btn.querySelector('.scene-name').textContent}」场景，我们开始吧！`);
         getAIResponse(null);
     });
 });
@@ -336,17 +333,28 @@ function speakText(text, onEndCallback) {
 
 // ========== 界面更新 ==========
 function addUserMessage(text) {
+    const now = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
     const div = document.createElement('div');
     div.className = 'user-message';
-    div.textContent = `🧑 ${text}`;
+    div.innerHTML = `
+        <div class="user-bubble">${text}</div>
+        <div class="message-time">${now}</div>
+    `;
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
 function addAIMessage(text) {
+    const now = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
     const div = document.createElement('div');
     div.className = 'ai-message';
-    div.textContent = `👩‍💼 ${text}`;
+    div.innerHTML = `
+        <div class="ai-avatar">👩‍💼</div>
+        <div>
+            <div class="ai-bubble">${text}</div>
+            <div class="message-time">${now}</div>
+        </div>
+    `;
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
@@ -369,7 +377,6 @@ reportBtn.addEventListener('click', async () => {
     reportBtn.textContent = '⏳ 生成中...';
     reportBtn.disabled = true;
 
-    // 计算本地数据
     const rounds = Math.floor(conversationHistory.length / 2);
     const duration = sessionStartTime
         ? Math.floor((new Date() - sessionStartTime) / 1000 / 60)
@@ -380,7 +387,6 @@ reportBtn.addEventListener('click', async () => {
     const allPronIssues = pronunciationIssues.flatMap(p => p.issues);
 
     try {
-        // 请求 AI 分析语法和表达
         const response = await fetch(CONFIG.API_URL, {
             method: 'POST',
             headers: {
@@ -420,12 +426,9 @@ reportBtn.addEventListener('click', async () => {
 
         const data = await response.json();
         let analysisText = data.choices[0].message.content.trim();
-
-        // 清理可能的 markdown 格式
         analysisText = analysisText.replace(/```json|```/g, '').trim();
         const analysis = JSON.parse(analysisText);
 
-        // 渲染报告
         const grammarHTML = analysis.grammar_errors.length > 0
             ? analysis.grammar_errors.map((e, i) => `
                 <div class="error-card">
@@ -447,8 +450,6 @@ reportBtn.addEventListener('click', async () => {
 
         reportContent.innerHTML = `
             <div class="report-wrap">
-
-                <!-- 模块一：概览数据 -->
                 <div class="report-overview">
                     <div class="overview-card">
                         <div class="overview-num">${rounds}</div>
@@ -463,8 +464,6 @@ reportBtn.addEventListener('click', async () => {
                         <div class="overview-label">📝 总词数</div>
                     </div>
                 </div>
-
-                <!-- 模块二：发音评分 -->
                 <div class="report-section-block">
                     <div class="section-title">🎤 发音评分</div>
                     <div class="pron-score">
@@ -473,26 +472,19 @@ reportBtn.addEventListener('click', async () => {
                     </div>
                     <div class="pron-issues">${pronIssuesHTML}</div>
                 </div>
-
-                <!-- 模块三：语法纠错 -->
                 <div class="report-section-block">
                     <div class="section-title">✏️ 语法纠错</div>
                     <div class="grammar-count">本次发现 <strong>${analysis.grammar_errors.length}</strong> 个语法问题</div>
                     ${grammarHTML}
                 </div>
-
-                <!-- 模块四：表达亮点 -->
                 <div class="report-section-block">
                     <div class="section-title">🌟 表达亮点</div>
                     ${goodExpHTML}
                 </div>
-
-                <!-- 模块五：下次建议 -->
                 <div class="report-section-block suggestion-block">
                     <div class="section-title">📌 下次练习重点</div>
                     <div class="suggestion-text">${analysis.suggestion}</div>
                 </div>
-
             </div>
         `;
 
@@ -505,7 +497,7 @@ reportBtn.addEventListener('click', async () => {
         reportSection.style.display = 'block';
     }
 
-    reportBtn.textContent = '📋 生成课后总结';
+    reportBtn.innerHTML = '<span>📋</span> 生成课后总结';
     reportBtn.disabled = false;
 });
 

@@ -88,17 +88,17 @@ const CONFIG = {
 
 本项目共经历 **8 次迭代**，完整记录产品从 MVP 到可用版本的演进过程：
 
-| PR | 迭代内容 | 负责人 |
-|----|---------|--------|
-| MVP | 完成基础页面框架，包含场景选择、录音控制、模拟对话 | 全员 |
-| PR #1 | 移除误导性随机评分，保护用户信任 | 刘阳 |
-| PR #2 | 移除 prompt 输入框，接入 Web Speech API | 刘阳 |
-| PR #3 | 修复语音识别中断问题，优化语法检查准确性 | 刘阳 |
-| PR #4 | 接入 DeepSeek API，实现真实 AI 对话 | 周雨涵 |
-| PR #5 | 优化录音交互，支持打断AI、手动停止、等待期锁定 | 周雨涵 |
-| PR #6 | 重构课后总结，新增量化评分和结构化语法纠错 | 全员 |
-| PR #7 | 新增旅行、日常对话场景，全面优化提示词质量 | 刘阳 |
-| PR #8 | 全面重设计 UI，温暖简约风格 + 精致动效升级 | 刘阳 |
+| PR | 迭代内容 | 
+|----|---------|
+| MVP | 完成基础页面框架，包含场景选择、录音控制、模拟对话 |
+| PR #1 | 移除误导性随机评分，保护用户信任 |
+| PR #2 | 移除 prompt 输入框，接入 Web Speech API |
+| PR #3 | 修复语音识别中断问题，优化语法检查准确性 | 
+| PR #4 | 接入 DeepSeek API，实现真实 AI 对话 | 
+| PR #5 | 优化录音交互，支持打断AI、手动停止、等待期锁定 | 
+| PR #6 | 重构课后总结，新增量化评分和结构化语法纠错 | 
+| PR #7 | 新增旅行、日常对话场景，全面优化提示词质量 | 
+| PR #8 | 全面重设计 UI，温暖简约风格 + 精致动效升级 | 
 
 ---
 
@@ -135,3 +135,6 @@ const CONFIG = {
 - 添加历史记录功能，支持不同时间段进度对比
 - 支持自定义场景输入
 - 移动端适配优化
+
+**demo视频链接**
+-  https://www.bilibili.com/video/BV16EEh6KEWi?buvid=XU089AF07A931EEC983ABEE583293E0B7C8F9&from_spmid=default-value&is_story_h5=false&mid=sai6uPvnHwb4Jv8IM3lHYX8FTQ%2FSZMtL1rElX6M3iMo%3D&plat_id=116&share_from=ugc&share_medium=android&share_plat=android&share_session_id=b76fcc2f-0ced-45a0-a399-0c8d1be2f846&share_source=WEIXIN&share_tag=s_i&spmid=united.player-video-detail.0.0&timestamp=1780846081&unique_k=iKNDTlA&up_id=3494361566284174&vd_source=5499657daedd9af035ae6a6776d86b02
